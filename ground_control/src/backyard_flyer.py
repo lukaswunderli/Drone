@@ -8,17 +8,17 @@ Created on Mon Jun  1 12:11:08 2020
 from enum import Enum
 import numpy as np
 
-from drone import Drone
+from drone import Drone, States
 from dronekit import LocationGlobalRelative
 from planning_utils import (local_to_global,LocationGlobal_to_LonLatAlt,LocationLocal_to_NorthEastUp)
 
-class States(Enum):
-    MANUAL = 0
-    ARMING = 1
-    TAKEOFF = 2
+
+class Mission(Enum):
+    NONE = 0
+    CHECK_ARM = 1
+    CHECK_TAKEOFF = 2
     WAYPOINT = 3
-    LANDING = 4
-    DISARMING = 5
+    FLIP = 4
 
 class BackyardFlyer(Drone):
     def __init__(self, *args):
@@ -26,11 +26,11 @@ class BackyardFlyer(Drone):
         
         self.target_position = np.array([0.0, 0.0, 0.0, 0.0])
         self.all_waypoints = []
-        self.in_mission = True
         self.check_state = {}
 
-        # initial state
+        # initial states
         self.flight_state = States.MANUAL
+        self.flight_mission = Mission.CHECK_ARM
         #self.add_message_listener('LOCAL_POSITION_NED',self.local_position_callback)
         #self.add_message_listener('GLOBAL_POSITION_INT',self.local_position_callback)
         
@@ -40,18 +40,32 @@ class BackyardFlyer(Drone):
     def local_position_callback(self, dummy, name, message):
         print('message: {0}'.format(message))
         print(self.mode, ' ', self.flight_state)
-        if self.flight_state == States.MANUAL:
-            #if not self.is_armable:
-            #    print(" Waiting for vehicle to initialise...")
-            #else:
+        if self.flight_state == States.MANUAL && self.flight_mission != Mission.NONE:
+            if not self.is_armable:
+                print(" Waiting for vehicle to initialise...")
+            else:
+                self.mode = VehicleMode("GUIDED")
                 self.arming_transition()
         elif self.flight_state == States.ARMING:
             if self.armed:
-                self.takeoff_transition()
+                if self.flight_mission == Mission.CHECK_ARM:
+                    self.flight_mission = Mission.NONE
+                    self.disarming_transition()
+                elif self.flight_mission == Mission.WAYPOINT:
+                    target_altitude = 3.0
+                else:
+                    target_altitude = 0.5
+                self.takeoff_transition(target_altitude)
         elif self.flight_state == States.TAKEOFF:
             if -1.0 * self.local_position.down > 0.95 * self.target_position[2]:
-                self.set_box_waypoints()
-                self.waypoint_transition()
+                if self.flight_mission == Mission.WAYPOINT:
+                    self.set_box_waypoints()
+                    self.waypoint_transition()
+                elif self.flight_mission == Mission.FLIP:
+                    self.flip_transition()
+                else
+                    self.landing_transition()
+                    
         elif self.flight_state == States.WAYPOINT:
             local_p = np.array(LocationLocal_to_NorthEastUp(self.local_position))
             dist = np.linalg.norm(self.target_position[0:2] - local_p[0:2])
@@ -62,9 +76,17 @@ class BackyardFlyer(Drone):
                 else:
                     if np.linalg.norm(self.local_velocity[0:2]) < 1.0:
                         self.landing_transition()
+        elif self.flight_state == States.FLIP:
+            if self.mode == VehicleMode("ACRO")
+                if self.flight_mission = Mission.FLIP
+                    self.mode = VehicleMode("FLIP")
+                    self.flight_mission = Mission.NONE
+                else self.mode == VehicleMode("ACRO"):
+                    self.landing_transistion();
         elif self.flight_state == States.LANDING:
             if self.global_position.alt - self.global_home.alt < 0.1:
-                if abs(self.local_position[2]) < 0.01:
+                if abs(self.local_position[2]) < 0.1:
+                    self.flight_mission = Mission.NONE
                     self.disarming_transition()
         elif self.flight_state == States.DISARMING:
             if ~self.armed & ~self.guided:
@@ -81,19 +103,6 @@ class BackyardFlyer(Drone):
             [0.0, 0.0, altitude, 270]]
         self.all_waypoints = local_waypoints
 
-    def arming_transition(self):
-        print("arming transition")
-        self.arm()
-        self.set_home_position(self.global_position)  # set the current location to be the home position
-        self.flight_state = States.ARMING
-
-    def takeoff_transition(self):
-        print("takeoff transition")
-        target_altitude = 3.0
-        self.target_position[2] = target_altitude
-        self.simple_takeoff(target_altitude)
-        self.flight_state = States.TAKEOFF
-
     def waypoint_transition(self):
         print("waypoint transition")
         self.target_position = self.all_waypoints.pop(0)
@@ -107,27 +116,24 @@ class BackyardFlyer(Drone):
         self.simple_goto(globalLoc)
         self.flight_state = States.WAYPOINT
 
-    def landing_transition(self):
-        print("landing transition")
-        self.land()
-        self.flight_state = States.LANDING
-
-    def disarming_transition(self):
-        print("disarm transition")
-        self.disarm()
-        self.release_control()
-        self.flight_state = States.DISARMING
-
-    def manual_transition(self):
-        print("manual transition")
-        self.stop()
-        self.in_mission = False
-        self.flight_state = States.MANUAL
+    def flip_transition(self):
+        print("flip transition")
+        self.mode = VehicleMode("ACRO")
+        self.flight_state = States.FLIP
 
     def start(self):
         print("starting connection")
         self.add_message_listener('GLOBAL_POSITION_INT',self.local_position_callback)
         self.flight_state = States.MANUAL
+    
+    def startArmCheck(self):
+        self.flight_mission = Mission.CHECK_ARM
+    def startTakeoffCheck(self):
+        self.flight_mission = Mission.CHECK_TAKEOFF
+    def startWaypointMission(self):
+        self.flight_mission = Mission.WAYPOINT
+    def startFlipMission(self):
+        self.flight_mission = Mission.FLIP
         
     #def stop(self):
     #    print("starting connection")

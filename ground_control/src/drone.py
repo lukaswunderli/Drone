@@ -12,8 +12,18 @@ import pandas as pd
 from dronekit import (Vehicle,VehicleMode)
 from pymavlink import mavutil
 
+class States(Enum):
+    MANUAL = 0
+    ARMING = 1
+    TAKEOFF = 2
+    WAYPOINT = 3
+    LANDING = 4
+    DISARMING = 5
+    FLIP = 6
+
 class Drone(Vehicle):
     def __init__(self, *args):
+        self.in_mission = True
         super(Drone, self).__init__(*args)
     
     @property
@@ -25,7 +35,6 @@ class Drone(Vehicle):
         return self.location.global_frame
     
     def arm(self):
-        self.mode = VehicleMode("GUIDED")
         self.armed = True
     
     def land(self):
@@ -51,7 +60,35 @@ class Drone(Vehicle):
             0, 0, 0)    # param 5 ~ 7 not used
         # send command to vehicle
         self.send_mavlink(msg)
-        
+
+    def arming_transition(self):
+        print("arming transition")
+        self.arm()
+        self.set_home_position(self.global_position)  # set the current location to be the home position
+        self.flight_state = States.ARMING
+
+    def takeoff_transition(self,target_altitude):
+        print("takeoff transition")
+        self.target_position[2] = target_altitude
+        self.simple_takeoff(target_altitude)
+        self.flight_state = States.TAKEOFF
+
+    def manual_transition(self):
+        print("manual transition")
+        self.stop()
+        self.in_mission = False
+        self.flight_state = States.MANUAL
+
+    def landing_transition(self):
+        print("landing transition")
+        self.land()
+        self.flight_state = States.LANDING
+
+    def disarming_transition(self):
+        print("disarm transition")
+        self.disarm()
+        self.release_control()
+        self.flight_state = States.DISARMING
     
     def print_parameter(self, name):
         print("Param[{0}]: {1}".format(name, self.parameters[name]))
