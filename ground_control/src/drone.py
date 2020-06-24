@@ -34,9 +34,6 @@ class Drone(Vehicle):
     def global_position(self):
         return self.location.global_frame
     
-    def arm(self):
-        self.armed = True
-    
     def land(self):
         self.mode = VehicleMode("LAND")
         
@@ -63,7 +60,7 @@ class Drone(Vehicle):
 
     def arming_transition(self):
         print("arming transition")
-        self.arm()
+        self.armed = True
         self.set_home_position(self.global_position)  # set the current location to be the home position
         self.flight_state = States.ARMING
 
@@ -75,7 +72,6 @@ class Drone(Vehicle):
 
     def manual_transition(self):
         print("manual transition")
-        self.stop()
         self.in_mission = False
         self.flight_state = States.MANUAL
 
@@ -86,8 +82,8 @@ class Drone(Vehicle):
 
     def disarming_transition(self):
         print("disarm transition")
-        self.disarm()
-        self.release_control()
+        self.armed = False
+        #self.release_control()
         self.flight_state = States.DISARMING
     
     def print_parameter(self, name):
@@ -101,3 +97,8 @@ class Drone(Vehicle):
         df = pd.read_csv("parameters.csv")
         for index, row in df.iterrows():
             self.set_parameter(row['Parameter'],row['Value'])
+            
+            
+            
+            
+            
